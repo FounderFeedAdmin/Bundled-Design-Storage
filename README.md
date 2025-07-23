@@ -1,4 +1,19 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎨 Bundled Design Storage
+
+A modern, feature-rich S3 file management application built with Next.js 15 and React 19.
+
+## Features
+
+- 📁 Complete S3 file browser with folder navigation
+- 📤 Drag & drop file upload with progress tracking
+- 🎨 Assets upload mode with automatic renaming
+- 🔗 CloudFront integration for public file sharing
+- ℹ️ Comprehensive file metadata viewer
+- 🗑️ Robust file/folder deletion with confirmation
+- ⌨️ Keyboard shortcuts for enhanced productivity
+- 🖱️ Right-click context menus
+- 📋 Copy links and download files
+- 🔍 File search and sorting capabilities
 
 ## Getting Started
 
