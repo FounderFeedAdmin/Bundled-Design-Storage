@@ -207,7 +207,7 @@ export default function Home() {
         setShowNewFolderDialog(false);
         setNewFolderName('');
         loadFiles(); // Refresh the file list
-        
+
         // Auto-unselect files after successful folder creation
         setSelectedFiles(new Set());
       } else {
@@ -631,7 +631,7 @@ export default function Home() {
     if (filesToOpen.length > 5) {
       setUploadStatus('Opening files in tabs... Please allow popups if prompted.');
     }
-    
+
     // Auto-unselect files after opening in tabs
     setTimeout(() => {
       setSelectedFiles(new Set());
@@ -905,7 +905,7 @@ export default function Home() {
       const modeText = useAssetsMode ? ' with auto-generated asset names' : '';
       setUploadStatus(`Successfully uploaded ${successCount} file(s)${modeText}!`);
       loadFiles(); // Refresh the file list
-      
+
       // Auto-unselect files after successful upload
       setSelectedFiles(new Set());
     } catch (err: any) {
