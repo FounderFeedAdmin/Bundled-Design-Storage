@@ -64,13 +64,7 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'date' | 'type'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{
-    show: boolean;
-    x: number;
-    y: number;
-    item: any;
-  }>({ show: false, x: 0, y: 0, item: null });
+
 
   // Upload result state for copy link feature
   const [uploadResult, setUploadResult] = useState<{
@@ -100,112 +94,6 @@ export default function Home() {
   useEffect(() => {
     setSelectedFiles(new Set());
   }, [currentPath]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isConnected && currentPage === 'dashboard' && !showNewFolderDialog && !showShareDialog) {
-        // File operations
-        if (event.key === 'Delete' && selectedFiles.size > 0) {
-          event.preventDefault();
-          initiateDelete();
-        }
-
-        // Navigation shortcuts
-        if (event.key === 'Escape') {
-          setSelectedFiles(new Set());
-          setContextMenu({ show: false, x: 0, y: 0, item: null });
-        }
-
-        // Select all (Ctrl+A)
-        if (event.ctrlKey && event.key === 'a') {
-          event.preventDefault();
-          const allFilePaths = new Set(files.map(file => file.path));
-          setSelectedFiles(allFilePaths);
-        }
-
-        // Download selected (Ctrl+D)
-        if (event.ctrlKey && event.key === 'd' && selectedFiles.size > 0) {
-          event.preventDefault();
-          handleDownload();
-        }
-
-        // New folder (Ctrl+Shift+N)
-        if (event.ctrlKey && event.shiftKey && event.key === 'N') {
-          event.preventDefault();
-          setShowNewFolderDialog(true);
-        }
-
-        // Refresh (F5)
-        if (event.key === 'F5') {
-          event.preventDefault();
-          loadFiles();
-        }
-
-        // Go back (Backspace)
-        if (event.key === 'Backspace' && currentPath !== '/') {
-          event.preventDefault();
-          const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
-          setCurrentPath(parentPath);
-          setSelectedFiles(new Set());
-        }
-      }
-    };
-
-    const handleClick = () => {
-      setContextMenu({ show: false, x: 0, y: 0, item: null });
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('click', handleClick);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('click', handleClick);
-    };
-  }, [isConnected, selectedFiles, currentPage, showNewFolderDialog, showShareDialog, files, currentPath]);
-
-  // Context menu handler
-  const handleContextMenu = (event: React.MouseEvent, item: any) => {
-    event.preventDefault();
-    setContextMenu({
-      show: true,
-      x: event.clientX,
-      y: event.clientY,
-      item: item
-    });
-  };
-
-  // Context menu actions
-  const contextMenuActions = {
-    download: (item: any) => {
-      handleDownload([item]);
-      setContextMenu({ show: false, x: 0, y: 0, item: null });
-    },
-    share: (item: any) => {
-      handleShare(item);
-      setContextMenu({ show: false, x: 0, y: 0, item: null });
-    },
-    delete: (item: any) => {
-      setItemsToDelete([item]);
-      setCurrentPage('delete');
-      setContextMenu({ show: false, x: 0, y: 0, item: null });
-    },
-    rename: (item: any) => {
-      // TODO: Implement rename functionality
-      setError('Rename functionality coming soon!');
-      setContextMenu({ show: false, x: 0, y: 0, item: null });
-    },
-    copyLink: (item: any) => {
-      if (config.cloudFrontUrl) {
-        const link = `${config.cloudFrontUrl.endsWith('/') ? config.cloudFrontUrl.slice(0, -1) : config.cloudFrontUrl}/${item.path}`;
-        navigator.clipboard.writeText(link);
-        setUploadStatus('Link copied to clipboard!');
-        setTimeout(() => setUploadStatus(''), 3000);
-      } else {
-        setError('CloudFront URL is required to copy links');
-      }
-      setContextMenu({ show: false, x: 0, y: 0, item: null });
-    }
-  };
 
   const handleInputChange = (field: keyof S3Config, value: string) => {
     setConfig(prev => ({ ...prev, [field]: value }));
@@ -319,6 +207,9 @@ export default function Home() {
         setShowNewFolderDialog(false);
         setNewFolderName('');
         loadFiles(); // Refresh the file list
+        
+        // Auto-unselect files after successful folder creation
+        setSelectedFiles(new Set());
       } else {
         setError(data.error || 'Failed to create folder');
       }
@@ -412,7 +303,7 @@ export default function Home() {
     let itemsForDeletion;
 
     if (items) {
-      // Delete specific items (from context menu or individual delete)
+      // Delete specific items
       itemsForDeletion = items;
     } else {
       // Delete selected items
@@ -501,6 +392,43 @@ export default function Home() {
     setSelectedFiles(new Set());
   };
 
+  // Helper function to download files using fetch (forces download for images)
+  const downloadFileWithFetch = async (url: string, fileName: string): Promise<boolean> => {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+
+      // Create blob URL and download
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName || 'download';
+      link.style.display = 'none';
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up blob URL
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+
+      return true;
+    } catch (error) {
+      console.error('Fetch download failed:', error);
+      return false;
+    }
+  };
+
   const handleDownload = async (items?: any[]) => {
     if (!config.cloudFrontUrl.trim()) {
       setError('CloudFront URL is required for downloading files. Please configure it in settings.');
@@ -547,45 +475,75 @@ export default function Home() {
 
       if (response.ok) {
         if (data.type === 'single') {
-          // Single file download
-          const link = document.createElement('a');
-          link.href = data.downloadUrl;
-          link.download = data.fileName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-
-          setUploadStatus('File downloaded successfully!');
-          setTimeout(() => setUploadStatus(''), 3000);
+          // Single file download with forced download
+          try {
+            await downloadFileWithFetch(data.downloadUrl, data.fileName);
+            setUploadStatus('File downloaded successfully!');
+            setTimeout(() => setUploadStatus(''), 3000);
+          } catch (err) {
+            console.error('Download failed:', err);
+            // Fallback to direct link
+            const link = document.createElement('a');
+            link.href = data.downloadUrl;
+            link.download = data.fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setUploadStatus('File download initiated!');
+            setTimeout(() => setUploadStatus(''), 3000);
+          }
         } else {
-          // Multiple files download
+          // Multiple files download with improved forced download handling
           let downloaded = 0;
+          let failed = 0;
           const total = data.downloads.length;
+          const failedFiles = [];
+
+          setUploadStatus(`Starting download of ${total} file(s)...`);
 
           for (const download of data.downloads) {
             try {
-              const link = document.createElement('a');
-              link.href = download.url;
-              link.download = download.fileName;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
+              // Try fetch-based download first for better control
+              const success = await downloadFileWithFetch(download.url, download.fileName);
 
-              downloaded++;
-              setDownloadProgress((downloaded / total) * 100);
+              if (success) {
+                downloaded++;
+              } else {
+                // Fallback to traditional method
+                const link = document.createElement('a');
+                link.href = download.directUrl || download.url;
+                link.download = download.fileName || 'download';
+                link.style.display = 'none';
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
 
-              // Small delay between downloads to prevent browser blocking
-              await new Promise(resolve => setTimeout(resolve, 500));
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                downloaded++;
+              }
+
+              // Update progress
+              setDownloadProgress(((downloaded + failed) / total) * 100);
+              setUploadStatus(`Downloading... ${downloaded}/${total} files completed`);
+
+              // Longer delay between downloads to prevent browser blocking
+              await new Promise(resolve => setTimeout(resolve, 1000));
+
             } catch (err) {
               console.error(`Failed to download ${download.fileName}:`, err);
+              failed++;
+              failedFiles.push(download.fileName);
+              setDownloadProgress(((downloaded + failed) / total) * 100);
             }
           }
 
-          if (data.errors.length > 0) {
-            setError(`Downloaded ${downloaded} files, but ${data.errors.length} failed`);
+          // Final status update
+          if (failed > 0) {
+            setError(`Downloaded ${downloaded} files successfully, ${failed} failed: ${failedFiles.join(', ')}`);
           } else {
-            setUploadStatus(`Successfully downloaded ${downloaded} file(s)!`);
-            setTimeout(() => setUploadStatus(''), 3000);
+            setUploadStatus(`Successfully downloaded all ${downloaded} file(s)!`);
+            setTimeout(() => setUploadStatus(''), 5000);
           }
         }
       } else {
@@ -596,7 +554,88 @@ export default function Home() {
     } finally {
       setIsDownloading(false);
       setDownloadProgress(0);
+      // Auto-unselect files after download operation completes
+      if (!items) { // Only unselect if it was a bulk download operation
+        setSelectedFiles(new Set());
+      }
     }
+  };
+
+  const openAllFilesInTabs = () => {
+    if (!config.cloudFrontUrl.trim()) {
+      setError('CloudFront URL is required for opening files. Please configure it in settings.');
+      return;
+    }
+
+    const filesToOpen = files.filter(file =>
+      selectedFiles.has(file.path) && file.type === 'file'
+    );
+
+    if (filesToOpen.length === 0) {
+      setError('Please select files to open (folders cannot be opened)');
+      return;
+    }
+
+    if (filesToOpen.length > 10) {
+      const confirmOpen = confirm(
+        `You're about to open ${filesToOpen.length} files in new tabs. This might be blocked by your browser. Continue?`
+      );
+      if (!confirmOpen) return;
+    }
+
+    const baseUrl = config.cloudFrontUrl.endsWith('/')
+      ? config.cloudFrontUrl.slice(0, -1)
+      : config.cloudFrontUrl;
+
+    let opened = 0;
+    let failed = 0;
+
+    filesToOpen.forEach((file, index) => {
+      try {
+        const fileUrl = `${baseUrl}/${file.path}`;
+
+        // Add a small delay between opening tabs to prevent browser blocking
+        setTimeout(() => {
+          try {
+            const newWindow = window.open(fileUrl, '_blank', 'noopener,noreferrer');
+            if (newWindow) {
+              opened++;
+            } else {
+              failed++;
+              console.error(`Failed to open ${file.name} - popup blocked`);
+            }
+
+            // Update status after all attempts
+            if (index === filesToOpen.length - 1) {
+              setTimeout(() => {
+                if (failed > 0) {
+                  setError(`Opened ${opened} files, ${failed} blocked by popup blocker. Please allow popups for this site.`);
+                } else {
+                  setUploadStatus(`Successfully opened ${opened} file(s) in new tabs!`);
+                  setTimeout(() => setUploadStatus(''), 3000);
+                }
+              }, 100);
+            }
+          } catch (err) {
+            failed++;
+            console.error(`Failed to open ${file.name}:`, err);
+          }
+        }, index * 200); // 200ms delay between each tab
+
+      } catch (err) {
+        failed++;
+        console.error(`Failed to process ${file.name}:`, err);
+      }
+    });
+
+    if (filesToOpen.length > 5) {
+      setUploadStatus('Opening files in tabs... Please allow popups if prompted.');
+    }
+    
+    // Auto-unselect files after opening in tabs
+    setTimeout(() => {
+      setSelectedFiles(new Set());
+    }, 1000); // Small delay to let the operation complete
   };
 
   const handleShare = (item: any) => {
@@ -773,8 +812,16 @@ export default function Home() {
     if (!isAutoDetectAssets) {
       return assetsUploadMode;
     }
-    // Auto-detect: check if current path contains 'assets' or is 'assets' folder
-    return currentPath.toLowerCase().includes('assets') || currentPath === '/assets/';
+    // Auto-detect: check if current path contains 'assets', 'template', or 'templates' folders
+    const path = currentPath.toLowerCase();
+    return (
+      path.includes('assets') ||
+      path.includes('template') ||
+      path.includes('templates') ||
+      path === '/assets/' ||
+      path === '/template/' ||
+      path === '/templates/'
+    );
   };
 
   const handleFileUpload = async (filesToUpload: File[]) => {
@@ -858,6 +905,9 @@ export default function Home() {
       const modeText = useAssetsMode ? ' with auto-generated asset names' : '';
       setUploadStatus(`Successfully uploaded ${successCount} file(s)${modeText}!`);
       loadFiles(); // Refresh the file list
+      
+      // Auto-unselect files after successful upload
+      setSelectedFiles(new Set());
     } catch (err: any) {
       setUploadStatus(err.message || 'Failed to upload files');
       console.error('Upload error:', err);
@@ -1153,9 +1203,9 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-3">
-                  <img 
-                    src="/logo_bundled_design.webp" 
-                    alt="Bundled.design" 
+                  <img
+                    src="/logo_bundled_design.webp"
+                    alt="Bundled.design"
                     className="h-8 w-8"
                   />
                   <h1 className="text-xl font-bold">
@@ -1239,6 +1289,16 @@ export default function Home() {
                     <span className="mr-2">📥</span>
                     {isDownloading ? 'Downloading...' : `Download (${selectedFiles.size})`}
                   </button>
+                  {selectedFiles.size > 1 && (
+                    <button
+                      onClick={() => openAllFilesInTabs()}
+                      className="flex items-center bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                      title="Open all files in new tabs if bulk download is blocked"
+                    >
+                      <span className="mr-2">🔗</span>
+                      Open in Tabs
+                    </button>
+                  )}
                   <button
                     onClick={() => initiateDelete()}
                     className="flex items-center bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -1256,25 +1316,6 @@ export default function Home() {
               <span className="mr-2">📁</span>
               New Folder
             </button>
-          </div>
-
-          {/* Keyboard Shortcuts Help */}
-          <div className="mb-4">
-            <details className="bg-gray-800/50 rounded-lg">
-              <summary className="cursor-pointer p-3 text-sm text-gray-400 hover:text-white transition-colors">
-                ⌨️ Keyboard Shortcuts
-              </summary>
-              <div className="px-3 pb-3 text-sm text-gray-300 grid grid-cols-2 gap-2">
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Delete</kbd> Delete selected</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Ctrl+A</kbd> Select all</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Ctrl+D</kbd> Download selected</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Ctrl+Shift+N</kbd> New folder</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">F5</kbd> Refresh</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Backspace</kbd> Go back</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Esc</kbd> Clear selection</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs">Right-click</kbd> Context menu</div>
-              </div>
-            </details>
           </div>
 
           {/* Assets Upload Mode Controls */}
@@ -1316,7 +1357,7 @@ export default function Home() {
               </p>
               {isAutoDetectAssets && (
                 <p className="text-blue-400">
-                  💡 Auto-detection: Assets mode activates when uploading to folders containing "assets"
+                  💡 Auto-detection: Assets mode activates when uploading to folders containing "assets", "template", or "templates"
                 </p>
               )}
               {shouldUseAssetsMode() && (
@@ -1366,6 +1407,9 @@ export default function Home() {
                     ></div>
                   </div>
                   <p className="text-sm text-blue-400">Downloading... {Math.round(downloadProgress)}%</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 If downloads are blocked, try the "Open in Tabs" button or allow popups for this site
+                  </p>
                 </div>
               )}
               {uploadStatus && (
@@ -1474,7 +1518,6 @@ export default function Home() {
                   <div
                     key={item.path}
                     className="flex items-center px-4 py-3 hover:bg-gray-700 transition-colors"
-                    onContextMenu={(e) => handleContextMenu(e, item)}
                   >
                     <input
                       type="checkbox"
@@ -1575,64 +1618,6 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Context Menu */}
-          {contextMenu.show && (
-            <div
-              className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 py-2 min-w-48"
-              style={{
-                left: `${contextMenu.x}px`,
-                top: `${contextMenu.y}px`,
-                maxWidth: '200px'
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {contextMenu.item && (
-                <>
-                  <div className="px-3 py-2 text-sm text-gray-400 border-b border-gray-600">
-                    {contextMenu.item.name}
-                  </div>
-
-                  {contextMenu.item.type === 'file' && (
-                    <>
-                      <button
-                        onClick={() => contextMenuActions.download(contextMenu.item)}
-                        className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 flex items-center"
-                      >
-                        <span className="mr-2">📥</span> Download
-                      </button>
-                      <button
-                        onClick={() => contextMenuActions.share(contextMenu.item)}
-                        className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 flex items-center"
-                      >
-                        <span className="mr-2">🔗</span> Share
-                      </button>
-                      <button
-                        onClick={() => contextMenuActions.copyLink(contextMenu.item)}
-                        className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 flex items-center"
-                      >
-                        <span className="mr-2">📋</span> Copy Link
-                      </button>
-                      <div className="border-t border-gray-600 my-1"></div>
-                    </>
-                  )}
-
-                  <button
-                    onClick={() => contextMenuActions.rename(contextMenu.item)}
-                    className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 flex items-center"
-                  >
-                    <span className="mr-2">✏️</span> Rename
-                  </button>
-                  <button
-                    onClick={() => contextMenuActions.delete(contextMenu.item)}
-                    className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-700 flex items-center"
-                  >
-                    <span className="mr-2">🗑️</span> Delete
-                  </button>
-                </>
-              )}
             </div>
           )}
 
@@ -1756,9 +1741,9 @@ export default function Home() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center space-x-4 mb-2">
-            <img 
-              src="/logo_bundled_design.webp" 
-              alt="Bundled.design" 
+            <img
+              src="/logo_bundled_design.webp"
+              alt="Bundled.design"
               className="h-12 w-12"
             />
             <h1 className="text-3xl font-bold text-blue-400">

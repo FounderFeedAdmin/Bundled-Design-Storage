@@ -20,35 +20,62 @@ export async function POST(request: NextRequest) {
       : cloudFrontUrl;
 
     if (downloadType === "single" && filePaths.length === 1) {
-      // Generate CloudFront URL for single file download
+      // Generate CloudFront URL for single file download with download parameter
       const filePath = filePaths[0];
-      const downloadUrl = `${baseUrl}/${filePath}`;
+      const fileName = filePath.split("/").pop() || "download";
+      const downloadUrl = `${baseUrl}/${filePath}?response-content-disposition=attachment%3B%20filename%3D${encodeURIComponent(
+        fileName
+      )}`;
 
       return NextResponse.json({
         success: true,
         downloadUrl: downloadUrl,
-        fileName: filePath.split("/").pop(),
+        fileName: fileName,
         type: "single",
+        forceDownload: true,
       });
     } else {
-      // For multiple files, return individual CloudFront URLs
+      // For multiple files, return individual CloudFront URLs with additional metadata
       const downloadUrls = [];
+      const errors = [];
 
       for (const filePath of filePaths) {
-        const downloadUrl = `${baseUrl}/${filePath}`;
+        try {
+          // Validate file path
+          if (!filePath || typeof filePath !== "string") {
+            errors.push({ path: filePath, error: "Invalid file path" });
+            continue;
+          }
 
-        downloadUrls.push({
-          path: filePath,
-          fileName: filePath.split("/").pop(),
-          url: downloadUrl,
-        });
+          const fileName = filePath.split("/").pop() || "download";
+          const downloadUrl = `${baseUrl}/${filePath}?response-content-disposition=attachment%3B%20filename%3D${encodeURIComponent(
+            fileName
+          )}`;
+
+          downloadUrls.push({
+            path: filePath,
+            fileName: fileName,
+            url: downloadUrl,
+            directUrl: `${baseUrl}/${filePath}`, // Keep direct URL for fallback
+            // Add content disposition hint for better download handling
+            contentDisposition: `attachment; filename="${fileName}"`,
+            forceDownload: true,
+          });
+        } catch (error) {
+          errors.push({
+            path: filePath,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
       }
 
       return NextResponse.json({
         success: true,
         downloads: downloadUrls,
-        errors: [], // No errors since we're just constructing URLs
+        errors: errors,
         type: "multiple",
+        totalFiles: downloadUrls.length,
+        failedFiles: errors.length,
       });
     }
   } catch (error: any) {
