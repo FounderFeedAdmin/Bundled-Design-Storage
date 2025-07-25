@@ -52,19 +52,9 @@ export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
 
-  // Share state
-  const [showShareDialog, setShowShareDialog] = useState(false);
-  const [shareItem, setShareItem] = useState<any>(null);
-  const [shareResult, setShareResult] = useState<{
-    shareUrl: string;
-    fileName: string;
-  } | null>(null);
-
   // Sorting state
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'date' | 'type'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-
-
 
   // Upload result state for copy link feature
   const [uploadResult, setUploadResult] = useState<{
@@ -76,6 +66,9 @@ export default function Home() {
   // Assets upload mode state
   const [assetsUploadMode, setAssetsUploadMode] = useState(false);
   const [isAutoDetectAssets, setIsAutoDetectAssets] = useState(true);
+
+  // Image loading error tracking
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const savedConfig = localStorage.getItem('s3-config');
@@ -93,6 +86,8 @@ export default function Home() {
   // Clear selection when directory changes
   useEffect(() => {
     setSelectedFiles(new Set());
+    // Clear failed images when navigating to a new directory
+    setFailedImages(new Set());
   }, [currentPath]);
 
   const handleInputChange = (field: keyof S3Config, value: string) => {
@@ -638,7 +633,7 @@ export default function Home() {
     }, 1000); // Small delay to let the operation complete
   };
 
-  const handleShare = (item: any) => {
+  const handleShare = async (item: any) => {
     if (item.type !== 'file') {
       setError('Only files can be shared (folders cannot be shared)');
       return;
@@ -649,14 +644,6 @@ export default function Home() {
       return;
     }
 
-    setShareItem(item);
-    setShareResult(null);
-    setShowShareDialog(true);
-  };
-
-  const generateShareLink = async () => {
-    if (!shareItem) return;
-
     try {
       const response = await fetch('/api/s3/share', {
         method: 'POST',
@@ -665,47 +652,23 @@ export default function Home() {
         },
         body: JSON.stringify({
           cloudFrontUrl: config.cloudFrontUrl,
-          filePath: shareItem.path
+          filePath: item.path
         }),
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        setShareResult({
-          shareUrl: data.shareUrl,
-          fileName: data.fileName
-        });
+        // Directly copy the URL to clipboard
+        await navigator.clipboard.writeText(data.shareUrl);
+        setUploadStatus(`Share link for "${item.name}" copied to clipboard!`);
+        setTimeout(() => setUploadStatus(''), 3000);
       } else {
         throw new Error(data.error || 'Failed to generate share link');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to generate share link');
     }
-  };
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setUploadStatus('Share link copied to clipboard!');
-      setTimeout(() => setUploadStatus(''), 3000);
-    } catch (err) {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setUploadStatus('Share link copied to clipboard!');
-      setTimeout(() => setUploadStatus(''), 3000);
-    }
-  };
-
-  const closeShareDialog = () => {
-    setShowShareDialog(false);
-    setShareItem(null);
-    setShareResult(null);
   };
 
   const sortFiles = (filesToSort: any[]) => {
@@ -822,6 +785,31 @@ export default function Home() {
       path === '/template/' ||
       path === '/templates/'
     );
+  };
+
+  // Helper function to check if we're in an assets folder (for image preview)
+  const isInAssetsFolder = () => {
+    const path = currentPath.toLowerCase();
+    return (
+      path.includes('assets') ||
+      path === '/assets/'
+    );
+  };
+
+  // Helper function to check if a file is an image
+  const isImageFile = (item: any) => {
+    if (item.type !== 'file') return false;
+    const ext = item.extension?.toLowerCase();
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
+  };
+
+  // Generate image URL for preview
+  const getImagePreviewUrl = (item: any) => {
+    if (!config.cloudFrontUrl || !isImageFile(item)) return null;
+    const baseUrl = config.cloudFrontUrl.endsWith('/')
+      ? config.cloudFrontUrl.slice(0, -1)
+      : config.cloudFrontUrl;
+    return `${baseUrl}/${item.path}`;
   };
 
   const handleFileUpload = async (filesToUpload: File[]) => {
@@ -1245,20 +1233,28 @@ export default function Home() {
 
           {/* Breadcrumb Navigation */}
           <div className="mb-6">
-            <div className="flex items-center text-sm text-gray-400">
-              {breadcrumbs.map((crumb, index) => (
-                <div key={index} className="flex items-center">
-                  <button
-                    onClick={() => navigateToFolder(crumb.path)}
-                    className="hover:text-white transition-colors"
-                  >
-                    {crumb.name}
-                  </button>
-                  {index < breadcrumbs.length - 1 && (
-                    <span className="mx-2">/</span>
-                  )}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center text-sm text-gray-400">
+                {breadcrumbs.map((crumb, index) => (
+                  <div key={index} className="flex items-center">
+                    <button
+                      onClick={() => navigateToFolder(crumb.path)}
+                      className="hover:text-white transition-colors"
+                    >
+                      {crumb.name}
+                    </button>
+                    {index < breadcrumbs.length - 1 && (
+                      <span className="mx-2">/</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {isInAssetsFolder() && (
+                <div className="flex items-center text-xs text-green-400 bg-green-900/20 px-2 py-1 rounded">
+                  <span className="mr-1">🖼️</span>
+                  Image previews enabled
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
@@ -1368,6 +1364,11 @@ export default function Home() {
               {shouldUseAssetsMode() && (
                 <p className="text-purple-400">
                   🔄 Example: "image.jpg" → "asset_1674532187456.jpg", "document.pdf" → "asset_1674532189123.pdf"
+                </p>
+              )}
+              {isInAssetsFolder() && (
+                <p className="text-green-400">
+                  🖼️ Image previews: Thumbnails are displayed for image files in assets folders
                 </p>
               )}
             </div>
@@ -1526,9 +1527,24 @@ export default function Home() {
                       className="mr-3 accent-blue-500"
                     />
                     <div className="flex items-center flex-1">
-                      <span className="text-blue-400 mr-3 text-lg">
-                        {getFileIcon(item)}
-                      </span>
+                      {/* Image preview for assets folder only */}
+                      {isInAssetsFolder() && isImageFile(item) && !failedImages.has(item.path) && getImagePreviewUrl(item) ? (
+                        <div className="flex items-center mr-3">
+                          <img
+                            src={getImagePreviewUrl(item) || ''}
+                            alt={item.name}
+                            className="w-12 h-12 object-cover rounded-lg border border-gray-600 shadow-sm"
+                            onError={() => {
+                              // Track failed image and fallback to icon
+                              setFailedImages(prev => new Set(prev).add(item.path));
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-blue-400 mr-3 text-lg">
+                          {getFileIcon(item)}
+                        </span>
+                      )}
                       <div className="flex-1">
                         {item.type === 'folder' ? (
                           <button
@@ -1621,116 +1637,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Share Dialog */}
-          {showShareDialog && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-gray-800 rounded-lg p-6 w-96 max-w-md">
-                <div className="flex items-center mb-4">
-                  <span className="text-green-400 text-2xl mr-3">🔗</span>
-                  <h3 className="text-lg font-semibold text-white">Share File</h3>
-                </div>
-
-                {shareItem && (
-                  <div className="mb-4 p-3 bg-gray-700 rounded-lg">
-                    <div className="flex items-center">
-                      <span className="text-blue-400 mr-3 text-lg">
-                        {getFileIcon(shareItem)}
-                      </span>
-                      <div>
-                        <div className="text-white font-medium">{shareItem.name}</div>
-                        <div className="text-sm text-gray-400">
-                          {formatFileSize(shareItem.size)}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {!shareResult ? (
-                  <div>
-                    <div className="bg-blue-900/20 border border-blue-600 rounded-lg p-3 mb-4">
-                      <p className="text-blue-300 text-sm">
-                        <strong>🌐 CloudFront Sharing:</strong> This will generate a permanent public link using your CloudFront distribution.
-                        Anyone with this link can access the file at any time.
-                      </p>
-                    </div>
-
-                    <div className="bg-amber-900/20 border border-amber-600 rounded-lg p-3 mb-4">
-                      <p className="text-amber-300 text-sm">
-                        <strong>⚠️ Important:</strong> Make sure your file is publicly accessible through CloudFront before sharing the link.
-                        The link will be permanent and won't expire.
-                      </p>
-                    </div>
-
-                    <div className="flex justify-end space-x-3">
-                      <button
-                        onClick={closeShareDialog}
-                        className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={generateShareLink}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                      >
-                        Generate Public Link
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Public CloudFront Link:
-                      </label>
-                      <div className="flex">
-                        <input
-                          type="text"
-                          value={shareResult.shareUrl}
-                          readOnly
-                          className="flex-1 bg-gray-700 border border-gray-600 rounded-l-lg px-3 py-2 text-white text-sm"
-                        />
-                        <button
-                          onClick={() => copyToClipboard(shareResult.shareUrl)}
-                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-r-lg transition-colors"
-                          title="Copy to clipboard"
-                        >
-                          📋
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mb-4 text-sm text-gray-400">
-                      <p>Type: Permanent public link</p>
-                      <p>Access: Anyone with the link</p>
-                    </div>
-
-                    <div className="bg-green-900/20 border border-green-600 rounded-lg p-3 mb-4">
-                      <p className="text-green-300 text-sm">
-                        <strong>✅ Link Generated:</strong> This CloudFront link provides permanent access to your file.
-                        Share it with anyone who needs access to this file.
-                      </p>
-                    </div>
-
-                    <div className="flex justify-end space-x-3">
-                      <button
-                        onClick={() => copyToClipboard(shareResult.shareUrl)}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                      >
-                        Copy Link
-                      </button>
-                      <button
-                        onClick={closeShareDialog}
-                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     );
